@@ -41,43 +41,113 @@ def get_db_connection():
 def load_csv_file(file_path):
     """Load a CSV file and prepare it for insertion"""
     try:
-        # Read CSV file
-        df = pd.read_csv(file_path)
+        # Try different encodings
+        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
         
-        # Expected columns mapping
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(file_path, sep=';', encoding=encoding)
+                logger.info(f"Successfully read {file_path} with encoding {encoding}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if df is None:
+            raise ValueError(f"Could not read file with any encoding: {encodings}")
+        
+        # Log the columns found in the CSV
+        logger.info(f"Columns in {file_path}: {df.columns.tolist()}")
+        
+        # Map CSV columns to database columns - includes Italian column names
         column_mapping = {
-            'timestamp': 'timestamp',
-            'temperature': 'temperature',
-            'humidity': 'humidity',
-            'pressure': 'pressure',
-            'wind_speed': 'wind_speed',
-            'wind_direction': 'wind_direction',
-            'precipitation': 'precipitation',
-            'visibility': 'visibility',
-            'station_id': 'station_id'
+            # English column names (most stations)
+            'Time': 'timestamp',
+            'latitude': 'latitude',
+            'longitude': 'longitude',
+            'extT': 'temperature',
+            'rh': 'humidity',
+            'pluv': 'precipitation',
+            'wsp_ana': 'wind_speed',
+            'wdir_ana': 'wind_direction',
+            'radN': 'radiation',
+            # Italian column names (station 263)
+            'T aria (°C)': 'temperature',
+            'T aria (�C)': 'temperature',  # With encoding issue
+            'Umidità aria (%)': 'humidity',
+            'Umidit� aria (%)': 'humidity',  # With encoding issue
+            'pioggia (count)': 'precipitation_count',
+            'pioggia (mm)': 'precipitation',
+            'radiazione globale(W/m2)': 'radiation',
+            'direzone vento (gradi)': 'wind_direction',
+            'velocità vento (m/sec)': 'wind_speed',
+            'velocit� vento (m/sec)': 'wind_speed',  # With encoding issue
         }
         
-        # Rename columns if necessary
-        df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+        # Create new dataframe with mapped columns
+        new_df = pd.DataFrame()
         
-        # Convert timestamp to datetime
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Handle timestamp - check for both 'Time' and first column (Italian format)
+        time_col = None
+        if 'Time' in df.columns:
+            time_col = 'Time'
+        else:
+            # For Italian format, timestamp might be the first column
+            first_col = df.columns[0]
+            if any(date_pattern in first_col.lower() for date_pattern in ['time', 'data', 'ora']):
+                time_col = first_col
         
-        # Add station_id if not present (extract from filename)
-        if 'station_id' not in df.columns:
-            station_id = os.path.basename(file_path).split('_')[0]
-            df['station_id'] = station_id
+        if time_col:
+            # Handle different date formats
+            try:
+                new_df['timestamp'] = pd.to_datetime(df[time_col], format='mixed', dayfirst=True)
+            except:
+                # Try different formats
+                for fmt in ['%d/%m/%Y %H:%M', '%d-%b-%Y %H:%M:%S', '%Y-%m-%d %H:%M:%S']:
+                    try:
+                        new_df['timestamp'] = pd.to_datetime(df[time_col], format=fmt)
+                        break
+                    except:
+                        continue
         
-        # Select only required columns
-        required_columns = list(column_mapping.values())
-        available_columns = [col for col in required_columns if col in df.columns]
-        df = df[available_columns]
+        # Map all other columns
+        for csv_col, db_col in column_mapping.items():
+            if csv_col in df.columns and csv_col != time_col:
+                if db_col in ['latitude', 'longitude']:
+                    # Handle coordinate columns - they might have formatting issues
+                    try:
+                        new_df[db_col] = pd.to_numeric(df[csv_col].astype(str).str.replace(',', '.'), errors='coerce')
+                    except:
+                        new_df[db_col] = pd.to_numeric(df[csv_col], errors='coerce')
+                elif db_col == 'precipitation_count':
+                    # Integer column
+                    new_df[db_col] = pd.to_numeric(df[csv_col], errors='coerce').fillna(0).astype('Int64')
+                else:
+                    # Regular numeric columns
+                    new_df[db_col] = pd.to_numeric(df[csv_col], errors='coerce')
+        
+        # Add station_id from filename (e.g., smart256 -> 256)
+        station_id = os.path.basename(file_path).replace('.csv', '').replace('smart', '')
+        new_df['station_id'] = station_id
+        
+        # Add missing columns with NULL
+        all_columns = ['timestamp', 'latitude', 'longitude', 'temperature', 'humidity', 
+                      'pressure', 'wind_speed', 'wind_direction', 'precipitation', 
+                      'precipitation_count', 'visibility', 'radiation', 'station_id']
+        
+        for col in all_columns:
+            if col not in new_df.columns:
+                new_df[col] = None
         
         # Replace NaN with None for proper NULL handling
-        df = df.where(pd.notnull(df), None)
+        new_df = new_df.where(pd.notnull(new_df), None)
         
-        return df
+        # Select columns in correct order
+        new_df = new_df[all_columns]
+        
+        logger.info(f"Loaded {len(new_df)} records from {file_path}")
+        
+        return new_df
     
     except Exception as e:
         logger.error(f"Failed to load CSV file {file_path}: {e}")
