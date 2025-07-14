@@ -17,7 +17,6 @@ DB_CONFIG = {
     'password': os.getenv('DB_PASSWORD', 'weather_password')
 }
 
-@st.cache_resource
 def get_db_connection():
     """Create and return a database connection"""
     try:
@@ -30,7 +29,7 @@ def get_db_connection():
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def load_data(start_date=None, end_date=None, station_id=None, limit=None):
     """Load weather data from database with optional filters"""
-    conn = get_db_connection()
+    conn = psycopg2.connect(**DB_CONFIG)
     
     query = "SELECT * FROM weather_raw WHERE 1=1"
     params = []
@@ -60,7 +59,7 @@ def load_data(start_date=None, end_date=None, station_id=None, limit=None):
 @st.cache_data(ttl=300)
 def get_stations():
     """Get list of available weather stations"""
-    conn = get_db_connection()
+    conn = psycopg2.connect(**DB_CONFIG)
     query = """
     SELECT DISTINCT station_id 
     FROM weather_raw 
@@ -75,7 +74,7 @@ def get_stations():
 @st.cache_data(ttl=300)
 def get_date_range():
     """Get the available date range in the database"""
-    conn = get_db_connection()
+    conn = psycopg2.connect(**DB_CONFIG)
     query = """
     SELECT 
         MIN(timestamp) as min_date, 

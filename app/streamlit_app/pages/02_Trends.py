@@ -27,7 +27,7 @@ with st.sidebar:
     st.subheader("Parameters")
     params = st.multiselect(
         "Select Parameters",
-        ["temperature", "humidity", "pressure", "wind_speed", "precipitation"],
+        ["temperature", "humidity", "wind_speed", "wind_direction", "radiation", "precipitation"],
         default=["temperature", "humidity"]
     )
 
@@ -43,16 +43,18 @@ if start_date and end_date and params:
             df_agg = df.set_index('timestamp').resample('H').agg({
                 'temperature': 'mean',
                 'humidity': 'mean',
-                'pressure': 'mean',
                 'wind_speed': 'mean',
+                'wind_direction': 'mean',
+                'radiation': 'mean',
                 'precipitation': 'sum'
             }).reset_index()
         elif agg_type == "Daily":
             df_agg = df.set_index('timestamp').resample('D').agg({
                 'temperature': ['mean', 'min', 'max'],
                 'humidity': 'mean',
-                'pressure': 'mean',
                 'wind_speed': 'mean',
+                'wind_direction': 'mean',
+                'radiation': 'mean',
                 'precipitation': 'sum'
             }).reset_index()
             df_agg.columns = ['_'.join(col).strip() if col[1] else col[0] for col in df_agg.columns.values]
@@ -61,16 +63,18 @@ if start_date and end_date and params:
             df_agg = df.set_index('timestamp').resample('W').agg({
                 'temperature': 'mean',
                 'humidity': 'mean',
-                'pressure': 'mean',
                 'wind_speed': 'mean',
+                'wind_direction': 'mean',
+                'radiation': 'mean',
                 'precipitation': 'sum'
             }).reset_index()
         else:  # Monthly
             df_agg = df.set_index('timestamp').resample('M').agg({
                 'temperature': 'mean',
                 'humidity': 'mean',
-                'pressure': 'mean',
                 'wind_speed': 'mean',
+                'wind_direction': 'mean',
+                'radiation': 'mean',
                 'precipitation': 'sum'
             }).reset_index()
         

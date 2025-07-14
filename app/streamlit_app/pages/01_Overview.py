@@ -134,7 +134,7 @@ if start_date and end_date:
         # Correlation Matrix
         st.subheader("🔗 Parameter Correlations")
         
-        numeric_cols = ['temperature', 'humidity', 'pressure', 'wind_speed', 'precipitation', 'visibility']
+        numeric_cols = ['temperature', 'humidity', 'wind_speed', 'wind_direction', 'radiation', 'precipitation']
         available_cols = [col for col in numeric_cols if col in df.columns and df[col].notna().any()]
         
         if len(available_cols) > 1:

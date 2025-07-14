@@ -25,12 +25,13 @@ with st.sidebar:
     st.subheader("Parameter")
     parameter = st.selectbox(
         "Select Parameter to Forecast",
-        ["temperature", "humidity", "pressure", "wind_speed"]
+        ["temperature", "humidity", "wind_speed", "wind_direction", "radiation", "precipitation"]
     )
     
     # Forecast settings
     st.subheader("Forecast Settings")
-    forecast_days = st.slider("Forecast Days", 1, 30, 7)
+    forecast_days = st.slider("Forecast Days", 1, 365, 30, 
+                             help="Number of days to forecast into the future")
     
     # Advanced settings
     with st.expander("Advanced Settings"):
@@ -101,28 +102,42 @@ if station_id:
                 
                 fig = go.Figure()
                 
-                # Historical data
+                # Split historical and future data
+                last_historical_date = prophet_df['ds'].max()
+                historical_forecast = forecast[forecast['ds'] <= last_historical_date]
+                future_forecast = forecast[forecast['ds'] > last_historical_date]
+                
+                # Historical data points
                 fig.add_trace(go.Scatter(
                     x=prophet_df['ds'],
                     y=prophet_df['y'],
                     mode='markers',
-                    name='Historical',
+                    name='Historical Data',
                     marker=dict(size=4, color='blue')
                 ))
                 
-                # Forecast
+                # Model fit on historical data
                 fig.add_trace(go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat'],
+                    x=historical_forecast['ds'],
+                    y=historical_forecast['yhat'],
                     mode='lines',
-                    name='Forecast',
-                    line=dict(color='red')
+                    name='Model Fit',
+                    line=dict(color='green', width=2)
                 ))
                 
-                # Confidence intervals
+                # Future forecast
                 fig.add_trace(go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat_upper'],
+                    x=future_forecast['ds'],
+                    y=future_forecast['yhat'],
+                    mode='lines',
+                    name='Forecast',
+                    line=dict(color='red', width=3, dash='dash')
+                ))
+                
+                # Confidence intervals for future forecast only
+                fig.add_trace(go.Scatter(
+                    x=future_forecast['ds'],
+                    y=future_forecast['yhat_upper'],
                     mode='lines',
                     name='Upper Bound',
                     line=dict(width=0),
@@ -130,8 +145,8 @@ if station_id:
                 ))
                 
                 fig.add_trace(go.Scatter(
-                    x=forecast['ds'],
-                    y=forecast['yhat_lower'],
+                    x=future_forecast['ds'],
+                    y=future_forecast['yhat_lower'],
                     mode='lines',
                     name='Lower Bound',
                     line=dict(width=0),
@@ -140,13 +155,7 @@ if station_id:
                     showlegend=False
                 ))
                 
-                # Add vertical line for forecast start
-                fig.add_vline(
-                    x=prophet_df['ds'].max(),
-                    line_dash="dash",
-                    line_color="gray",
-                    annotation_text="Forecast Start"
-                )
+                # Note: Vertical line removed due to Plotly datetime compatibility issue
                 
                 fig.update_layout(
                     title=f'{parameter.capitalize()} Forecast - {station_id}',
@@ -180,8 +189,29 @@ if station_id:
                 
                 with col2:
                     # Weekly seasonality
-                    fig_weekly = model.plot_components_plotly(forecast)
-                    st.plotly_chart(fig_weekly, use_container_width=True)
+                    st.subheader("Weekly Pattern")
+                    if 'weekly' in forecast.columns:
+                        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                        weekly_data = forecast[['ds', 'weekly']].copy()
+                        weekly_data['day_of_week'] = weekly_data['ds'].dt.day_name()
+                        weekly_pattern = weekly_data.groupby('day_of_week')['weekly'].mean().reindex(days)
+                        
+                        fig_weekly = go.Figure()
+                        fig_weekly.add_trace(go.Scatter(
+                            x=days,
+                            y=weekly_pattern.values,
+                            mode='lines+markers',
+                            name='Weekly Effect',
+                            line=dict(color='green', width=3)
+                        ))
+                        fig_weekly.update_layout(
+                            xaxis_title='Day of Week',
+                            yaxis_title='Weekly Effect',
+                            height=300
+                        )
+                        st.plotly_chart(fig_weekly, use_container_width=True)
+                    else:
+                        st.info("No weekly seasonality detected")
                 
                 # Model performance
                 if len(test_df) > 0:
@@ -190,10 +220,19 @@ if station_id:
                     # Make predictions on test set
                     test_forecast = model.predict(test_df[['ds']])
                     
+                    # Merge test data with forecast to ensure alignment
+                    test_comparison = test_df.merge(test_forecast[['ds', 'yhat']], on='ds', how='inner')
+                    
                     # Calculate metrics
-                    mae = mean_absolute_error(test_df['y'], test_forecast['yhat'])
-                    rmse = np.sqrt(mean_squared_error(test_df['y'], test_forecast['yhat']))
-                    mape = np.mean(np.abs((test_df['y'] - test_forecast['yhat']) / test_df['y'])) * 100
+                    mae = mean_absolute_error(test_comparison['y'], test_comparison['yhat'])
+                    rmse = np.sqrt(mean_squared_error(test_comparison['y'], test_comparison['yhat']))
+                    
+                    # Calculate MAPE, handling division by zero
+                    non_zero_mask = test_comparison['y'] != 0
+                    if non_zero_mask.any():
+                        mape = np.mean(np.abs((test_comparison['y'][non_zero_mask] - test_comparison['yhat'][non_zero_mask]) / test_comparison['y'][non_zero_mask])) * 100
+                    else:
+                        mape = np.nan
                     
                     col1, col2, col3 = st.columns(3)
                     
@@ -202,7 +241,10 @@ if station_id:
                     with col2:
                         st.metric("RMSE", f"{rmse:.2f}")
                     with col3:
-                        st.metric("MAPE", f"{mape:.1f}%")
+                        if not np.isnan(mape):
+                            st.metric("MAPE", f"{mape:.1f}%")
+                        else:
+                            st.metric("MAPE", "N/A", help="Cannot calculate MAPE due to zero values")
                     
                     # Validation plot
                     fig_val = go.Figure()
@@ -237,6 +279,32 @@ if station_id:
                 future_dates = forecast[forecast['ds'] > prophet_df['ds'].max()]
                 
                 if not future_dates.empty:
+                    # Show key metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        avg_forecast = future_dates['yhat'].mean()
+                        st.metric("Average Forecast", f"{avg_forecast:.1f}")
+                    
+                    with col2:
+                        max_forecast = future_dates['yhat'].max()
+                        max_date = future_dates.loc[future_dates['yhat'].idxmax(), 'ds']
+                        st.metric("Maximum", f"{max_forecast:.1f}", 
+                                delta=f"on {max_date.strftime('%Y-%m-%d')}")
+                    
+                    with col3:
+                        min_forecast = future_dates['yhat'].min()
+                        min_date = future_dates.loc[future_dates['yhat'].idxmin(), 'ds']
+                        st.metric("Minimum", f"{min_forecast:.1f}",
+                                delta=f"on {min_date.strftime('%Y-%m-%d')}")
+                    
+                    with col4:
+                        trend_change = future_dates['yhat'].iloc[-1] - future_dates['yhat'].iloc[0]
+                        st.metric("Trend Change", f"{trend_change:+.1f}",
+                                help="Change from start to end of forecast period")
+                    
+                    # Detailed forecast table
+                    st.markdown("#### Detailed Forecast")
                     summary_df = future_dates[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
                     summary_df.columns = ['Date', 'Forecast', 'Lower Bound', 'Upper Bound']
                     summary_df['Date'] = summary_df['Date'].dt.date
@@ -255,13 +323,32 @@ if station_id:
                 
                 # Additional insights
                 with st.expander("🔍 Additional Insights"):
+                    # Trend analysis
+                    historical_mean = prophet_df['y'].mean()
+                    forecast_mean = future_dates['yhat'].mean()
+                    trend_direction = "increasing" if forecast_mean > historical_mean else "decreasing"
+                    
+                    # Uncertainty analysis
+                    avg_uncertainty = (future_dates['yhat_upper'] - future_dates['yhat_lower']).mean()
+                    uncertainty_pct = (avg_uncertainty / forecast_mean) * 100
+                    
+                    # Seasonality strength
+                    if 'weekly' in forecast.columns:
+                        weekly_effect = forecast['weekly'].std()
+                        seasonality_strength = "strong" if weekly_effect > 0.5 else "moderate" if weekly_effect > 0.2 else "weak"
+                    else:
+                        seasonality_strength = "not detected"
+                    
                     st.markdown(f"""
                     ### Forecast Analysis for {parameter.capitalize()}
                     
                     **Station:** {station_id}
                     
                     **Key Findings:**
-                    - The model detected {'multiplicative' if seasonality_mode == 'multiplicative' else 'additive'} seasonality
+                    - **Trend**: The {parameter} is {trend_direction} ({forecast_mean:.1f} vs historical {historical_mean:.1f})
+                    - **Uncertainty**: Average prediction interval width is ±{avg_uncertainty:.1f} ({uncertainty_pct:.1f}%)
+                    - **Seasonality**: Weekly pattern is {seasonality_strength}
+                    - **Model Type**: Using {seasonality_mode} seasonality mode
                     - Weekly patterns show {f"highest values on {forecast.loc[forecast['weekly'].idxmax(), 'ds'].strftime('%A')}" if 'weekly' in forecast.columns else "consistent weekly pattern"}
                     - Trend is {'increasing' if forecast['trend'].iloc[-1] > forecast['trend'].iloc[0] else 'decreasing'} over the forecast period
                     

@@ -131,9 +131,10 @@ def load_csv_file(file_path):
         new_df['station_id'] = station_id
         
         # Add missing columns with NULL
+        # Note: pressure and visibility are not available in the CSV files
         all_columns = ['timestamp', 'latitude', 'longitude', 'temperature', 'humidity', 
-                      'pressure', 'wind_speed', 'wind_direction', 'precipitation', 
-                      'precipitation_count', 'visibility', 'radiation', 'station_id']
+                      'wind_speed', 'wind_direction', 'precipitation', 
+                      'precipitation_count', 'radiation', 'station_id']
         
         for col in all_columns:
             if col not in new_df.columns:

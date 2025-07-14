@@ -19,7 +19,7 @@ with st.sidebar:
     st.subheader("Parameter")
     parameter = st.selectbox(
         "Select Parameter",
-        ["temperature", "humidity", "pressure", "wind_speed", "precipitation"]
+        ["temperature", "humidity", "wind_speed", "wind_direction", "radiation", "precipitation"]
     )
     
     # Heatmap type

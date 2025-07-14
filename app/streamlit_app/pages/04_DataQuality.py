@@ -51,10 +51,28 @@ if start_date and end_date:
         # Missing data by column
         st.subheader("🔎 Missing Data Analysis")
         
+        # Count both NULL and NaN as missing
+        missing_counts = {}
+        for col in df.columns:
+            if col in ['temperature', 'humidity', 'wind_speed', 'wind_direction', 'precipitation', 'radiation']:
+                # For numeric columns, count NULL and NaN
+                null_count = df[col].isnull().sum()
+                nan_count = 0
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    nan_count = df[col].isna().sum() + (df[col] == float('inf')).sum() + (df[col] == float('-inf')).sum()
+                    # Also count 'NaN' string values for numeric columns
+                    try:
+                        nan_count += (df[col].astype(str) == 'NaN').sum()
+                    except:
+                        pass
+                missing_counts[col] = max(null_count, nan_count)
+            else:
+                missing_counts[col] = df[col].isnull().sum()
+        
         missing_data = pd.DataFrame({
-            'Column': df.columns,
-            'Missing Count': df.isnull().sum(),
-            'Missing Percentage': (df.isnull().sum() / len(df) * 100).round(2)
+            'Column': list(missing_counts.keys()),
+            'Missing Count': list(missing_counts.values()),
+            'Missing Percentage': [(count / len(df) * 100) for count in missing_counts.values()]
         })
         missing_data = missing_data[missing_data['Missing Count'] > 0].sort_values('Missing Percentage', ascending=False)
         
@@ -69,13 +87,43 @@ if start_date and end_date:
                 color_continuous_scale='Reds'
             )
             st.plotly_chart(fig_missing, use_container_width=True)
+            
+            # Add explanation for common missing data patterns
+            if 'wind_speed' in missing_data['Column'].values:
+                wind_missing = missing_data[missing_data['Column'] == 'wind_speed']['Missing Percentage'].values[0]
+                if wind_missing > 90:
+                    st.info("💨 **Note**: High wind_speed missing data often indicates sensor issues at certain stations (NaN values in CSV files)")
+            
+            if 'pressure' in missing_data['Column'].values or 'visibility' in missing_data['Column'].values:
+                st.warning("📊 **Note**: Pressure and visibility data are not available in the current CSV files")
         else:
             st.success("✅ No missing data found!")
+        
+        # Station-wise data availability
+        if station_id is None and 'station_id' in df.columns:
+            st.subheader("📍 Data Availability by Station")
+            
+            station_stats = []
+            for station in df['station_id'].unique():
+                station_df = df[df['station_id'] == station]
+                stats = {
+                    'Station': station,
+                    'Records': len(station_df),
+                    'Temperature': f"{(station_df['temperature'].notna().sum() / len(station_df) * 100):.1f}%",
+                    'Humidity': f"{(station_df['humidity'].notna().sum() / len(station_df) * 100):.1f}%",
+                    'Wind Speed': f"{((station_df['wind_speed'].notna() & (station_df['wind_speed'].astype(str) != 'nan')).sum() / len(station_df) * 100):.1f}%",
+                    'Precipitation': f"{(station_df['precipitation'].notna().sum() / len(station_df) * 100):.1f}%"
+                }
+                station_stats.append(stats)
+            
+            station_stats_df = pd.DataFrame(station_stats)
+            st.dataframe(station_stats_df, use_container_width=True, hide_index=True)
         
         # Data quality metrics by parameter
         st.subheader("📈 Data Quality Metrics")
         
-        weather_params = ['temperature', 'humidity', 'pressure', 'wind_speed', 'precipitation', 'visibility']
+        # Only check columns that actually exist in our CSV data
+        weather_params = ['temperature', 'humidity', 'wind_speed', 'wind_direction', 'precipitation', 'radiation']
         available_params = [p for p in weather_params if p in df.columns]
         
         if available_params:
@@ -122,23 +170,31 @@ if start_date and end_date:
                 'Status': '✅ Pass' if invalid_humidity == 0 else '❌ Fail'
             })
         
-        # Pressure range check
-        if 'pressure' in df.columns:
-            invalid_pressure = df[(df['pressure'] < 800) | (df['pressure'] > 1100)].shape[0]
+        # Radiation range check
+        if 'radiation' in df.columns:
+            invalid_radiation = df[df['radiation'] < 0].shape[0]
             validity_checks.append({
-                'Check': 'Pressure Range (800 to 1100 hPa)',
-                'Invalid Records': invalid_pressure,
-                'Status': '✅ Pass' if invalid_pressure == 0 else '❌ Fail'
+                'Check': 'Radiation (≥ 0)',
+                'Invalid Records': invalid_radiation,
+                'Status': '✅ Pass' if invalid_radiation == 0 else '❌ Fail'
             })
         
         # Wind speed check
         if 'wind_speed' in df.columns:
-            invalid_wind = df[df['wind_speed'] < 0].shape[0]
+            # Check for negative values (excluding NaN)
+            invalid_wind = df[(df['wind_speed'] < 0) & (df['wind_speed'].notna())].shape[0]
+            nan_wind = df['wind_speed'].isna().sum()
             validity_checks.append({
                 'Check': 'Wind Speed (≥ 0 m/s)',
                 'Invalid Records': invalid_wind,
                 'Status': '✅ Pass' if invalid_wind == 0 else '❌ Fail'
             })
+            if nan_wind > 0:
+                validity_checks.append({
+                    'Check': 'Wind Speed NaN Values',
+                    'Invalid Records': nan_wind,
+                    'Status': '⚠️ Warning'
+                })
         
         # Display validity checks
         validity_df = pd.DataFrame(validity_checks)
@@ -149,6 +205,9 @@ if start_date and end_date:
         
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df_sorted = df.sort_values('timestamp')
+        
+        # Initialize gaps variable
+        gaps = pd.Series()
         
         if station_id:
             # Single station analysis
