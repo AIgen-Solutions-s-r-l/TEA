@@ -87,20 +87,38 @@ class PCAAnalysisService:
             df = df.groupby('date').agg(agg_dict).reset_index()
             df['timestamp'] = pd.to_datetime(df['date'])
         
-        # Prepare features
-        feature_cols = [col for col in parameters if col in df.columns]
+        # Prepare features - only include columns that exist and have data
+        available_cols = [col for col in parameters if col in df.columns]
+        
+        # Filter out columns with all NaN values
+        feature_cols = []
+        for col in available_cols:
+            if df[col].notna().sum() > 0:
+                feature_cols.append(col)
+            else:
+                logger.warning(f"Excluding {col} - no valid data")
+        
+        logger.info(f"Requested parameters: {parameters}")
+        logger.info(f"Available columns: {list(df.columns)}")
+        logger.info(f"Final feature_cols: {feature_cols}")
+        
+        if len(feature_cols) < 2:
+            raise ValueError(f"Insufficient features for PCA (need at least 2). Valid features: {feature_cols}")
+        
         X = df[feature_cols].copy()
         
         # Handle missing values
         X_imputed = self.imputer.fit_transform(X)
+        logger.info(f"X_imputed shape: {X_imputed.shape}")
         
         # Standardize features
         X_scaled = self.scaler.fit_transform(X_imputed)
+        logger.info(f"X_scaled shape: {X_scaled.shape}, feature_cols length: {len(feature_cols)}")
         
-        # Create DataFrame with scaled data
+        # Create DataFrame with scaled data - use actual feature_cols that exist
         X_scaled_df = pd.DataFrame(
             X_scaled, 
-            columns=feature_cols,
+            columns=feature_cols,  # This already contains only existing columns
             index=df.index
         )
         

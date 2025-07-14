@@ -12,8 +12,8 @@ from plotly.subplots import make_subplots
 import sys
 import os
 
-# Add the parent directory to the path to import analytics
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add the app directory to the path to import analytics
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from analytics.pca_service import PCAAnalysisService
 from utils import create_date_filter, create_station_filter, DB_CONFIG
@@ -31,7 +31,7 @@ with st.sidebar:
     
     st.subheader("PCA Settings")
     
-    # Parameters to analyze
+    # Parameters to analyze (only those that exist in database)
     available_params = ["temperature", "humidity", "wind_speed", "wind_direction", "radiation", "precipitation"]
     selected_params = st.multiselect(
         "Select Parameters",
@@ -128,7 +128,7 @@ if start_date and end_date and len(selected_params) >= 2:
             st.subheader("📊 Variance Explained")
             
             variance_df = pd.DataFrame({
-                'Component': [f'PC{i+1}' for i in range(pca_results['n_components'])],
+                'Component': [f'PC{i+1}' for i in range(int(pca_results['n_components']))],
                 'Individual': pca_results['explained_variance_ratio'],
                 'Cumulative': pca_results['cumulative_variance_ratio']
             })
@@ -212,7 +212,7 @@ if start_date and end_date and len(selected_params) >= 2:
             )
             
             # Create columns for each component
-            n_cols = min(3, pca_results['n_components'])
+            n_cols = min(3, int(pca_results['n_components']))
             cols = st.columns(n_cols)
             
             for i, (pc, contributors) in enumerate(list(top_contributors.items())[:n_cols]):
@@ -231,15 +231,15 @@ if start_date and end_date and len(selected_params) >= 2:
             with col1:
                 pc_x = st.selectbox(
                     "X-axis Component",
-                    [f"PC{i+1}" for i in range(pca_results['n_components'])],
+                    [f"PC{i+1}" for i in range(int(pca_results['n_components']))],
                     index=0
                 )
             
             with col2:
                 pc_y = st.selectbox(
                     "Y-axis Component",
-                    [f"PC{i+1}" for i in range(pca_results['n_components'])],
-                    index=1 if pca_results['n_components'] > 1 else 0
+                    [f"PC{i+1}" for i in range(int(pca_results['n_components']))],
+                    index=1 if int(pca_results['n_components']) > 1 else 0
                 )
             
             # Create scatter plot of scores
@@ -429,7 +429,7 @@ if start_date and end_date and len(selected_params) >= 2:
                 )
                 
                 # Create subplot for each component
-                n_components = min(3, pca_results['n_components'])
+                n_components = min(3, int(pca_results['n_components']))
                 fig_temporal = make_subplots(
                     rows=n_components,
                     cols=1,

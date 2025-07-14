@@ -13,8 +13,8 @@ from plotly.subplots import make_subplots
 import sys
 import os
 
-# Add the parent directory to the path to import analytics
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add the app directory to the path to import analytics
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from analytics.correlation_service import CorrelationAnalysisService
 from utils import create_date_filter, create_station_filter, DB_CONFIG
