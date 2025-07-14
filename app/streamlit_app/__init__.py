@@ -1,0 +1,1 @@
+# Streamlit application module for Weather Data Platform
